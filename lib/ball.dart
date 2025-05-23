@@ -9,6 +9,7 @@ class Ball extends StatelessWidget {
   Widget build(BuildContext context) {
     return Image.asset(
       'images/ball$ballNumber.png',
+      width: MediaQuery.sizeOf(context).width * 0.8,
     );
   }
 }

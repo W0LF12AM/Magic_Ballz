@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:magic_ball/ball.dart';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'dart:math';
@@ -29,14 +33,14 @@ class MyBall extends StatefulWidget {
 }
 
 class _MyBallState extends State<MyBall> {
-  int ballNumber = 3;
-
   sst.SpeechToText _speech = sst.SpeechToText();
-
+  int ballNumber = 3;
   PermissionStatus? status;
   bool _speechEnabled = false;
+  bool _isListening = false;
   String _lastWords = '';
   String _finalResult = '';
+  bool _randomizing = false;
 
   @override
   void initState() {
@@ -72,9 +76,14 @@ class _MyBallState extends State<MyBall> {
     _speechEnabled = await _speech.initialize(
       onError: (error) => print('onError: $error'),
       onStatus: (status) {
+        print('onStatus: $status');
         if (status == 'notListening') {
           setState(() {
-            _finalResult = _lastWords;
+            _isListening = false;
+          });
+        } else if (status == 'listening') {
+          setState(() {
+            _isListening = true;
           });
         }
       },
@@ -85,13 +94,26 @@ class _MyBallState extends State<MyBall> {
 
   void _startListening() async {
     await _speech.listen(
-        onResult: _onSpeechResult, pauseFor: Duration(seconds: 5));
-    setState(() {});
+      onResult: _onSpeechResult,
+      listenFor: Duration(minutes: 1),
+      pauseFor: Duration(seconds: 5),
+    );
+    setState(() {
+      _isListening = true;
+      _lastWords = '';
+    });
   }
 
   void _stopListening() async {
     await _speech.stop();
-    setState(() {});
+    setState(() {
+      _isListening = false;
+      _finalResult = _lastWords;
+      print('Final result: $_finalResult');
+      Future.delayed(Duration(seconds: 1), () {
+        changeBall();
+      });
+    });
   }
 
   void _onSpeechResult(SpeechRecognitionResult speechResult) {
@@ -101,66 +123,122 @@ class _MyBallState extends State<MyBall> {
   }
 
   void changeBall() {
-    setState(() {
-      ballNumber = Random().nextInt(5) + 1;
+    if (_randomizing) return;
+    _randomizing = true;
+
+    const randomizeDuration = Duration(seconds: 1);
+    const interval = Duration(milliseconds: 100);
+    final doneRandomizing = DateTime.now().add(randomizeDuration);
+
+    Timer.periodic(interval, (timer) {
+      setState(() {
+        ballNumber = Random().nextInt(5) + 1;
+      });
+
+      if (DateTime.now().isAfter(doneRandomizing)) {
+        timer.cancel();
+        _randomizing = false;
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: SafeArea(child: Text('My Ball')),
       ),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            child: Container(
-              child: Text(
+          AnimatedContainer(
+            duration: Duration(milliseconds: 300),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(
+                  sigmaX: _isListening ? 5.0 : 0.0,
+                  sigmaY: _isListening ? 5.0 : 0.0),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Ball(ballNumber: ballNumber),
+                    const SizedBox(
+                      height: 30,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            transform: Matrix4.identity()..scale(_isListening ? 1.05 : 1.0),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 30),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Text(
                   _speech.isListening
                       ? '$_lastWords'
                       : _finalResult.isNotEmpty
                           ? _finalResult
-                          : _speechEnabled
+                          : !_isListening
                               ? 'Press the button to ask a question'
                               : 'Speech recognition not available',
                   style: TextStyle(
                     fontSize: 20,
                     color: Colors.black,
-                  )),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ),
           ),
           const SizedBox(
             height: 30,
           ),
-          Center(
-            child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            transform: Matrix4.identity()..scale(_isListening ? 1.05 : 1.0),
+            child: Center(
+              child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 40, vertical: 10),
                   ),
-                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 10),
-                ),
-                onPressed: () {
-                  if (_speechEnabled) {
-                    _speech.isListening ? _stopListening() : _startListening();
-                  } else {
-                    print('Mic belom siap');
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Speech Recognition belom siap')));
-                  }
-                  _speech.isNotListening ? _startListening() : _stopListening();
-                },
-                child: Text(
-                  'Ask Me',
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 20,
-                  ),
-                )),
+                  onPressed: _speechEnabled
+                      ? () {
+                          if (_isListening) {
+                            _stopListening();
+                          } else {
+                            _startListening();
+                          }
+                        }
+                      : null,
+                  child: Text(
+                    _isListening ? "Stop" : 'Ask Me',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 20,
+                    ),
+                  )),
+            ),
           )
         ],
       ),
